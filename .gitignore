@@ -1,0 +1,23 @@
+# Python Virtual Environment
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Frontend build
+frontend/dist/
+
+# Backend uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
