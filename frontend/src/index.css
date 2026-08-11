@@ -29,7 +29,7 @@
   --radius-lg: 20px;
   --radius-md: 14px;
   --radius-sm: 10px;
-  --transition: var(--transition);
+  --transition: all 0.25s ease;
 }
 
 html {
