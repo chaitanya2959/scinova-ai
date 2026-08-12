@@ -1,3 +1,6 @@
+import json
+import re
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -13,6 +16,38 @@ router = APIRouter(
 
 class CompareRequest(BaseModel):
     paper_ids: list[str]
+
+
+def _extract_comparison_json(answer):
+
+    if isinstance(answer, dict):
+        return answer
+
+    if not isinstance(answer, str):
+        raise ValueError("AI returned unsupported comparison format")
+
+    cleaned = answer.strip()
+
+    if cleaned.startswith("```"):
+        cleaned = re.sub(
+            r"^```(?:json)?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE
+        )
+        cleaned = re.sub(
+            r"\s*```$",
+            "",
+            cleaned
+        )
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise
 
 
 @router.post("/")
@@ -43,7 +78,7 @@ async def compare_papers(request: CompareRequest):
                     "and conclusion of this paper?"
                 ),
                 paper_id=paper_id,
-                top_k=10
+                top_k=6
             )
 
             if not results:
@@ -117,10 +152,15 @@ PAPER CONTEXT:
             context=all_context
         )
 
+        comparison = _extract_comparison_json(answer)
+
+        if isinstance(comparison, dict) and "comparison" in comparison:
+            comparison = comparison["comparison"]
+
         return {
             "success": True,
             "paper_ids": request.paper_ids,
-            "comparison": answer
+            "comparison": comparison
         }
 
     except HTTPException:

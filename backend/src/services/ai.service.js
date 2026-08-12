@@ -88,14 +88,18 @@ export const comparePapersWithAI = async (paperIds) => {
 
     return response.data;
   } catch (error) {
+    const detail =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message ||
+      "Failed to compare papers";
+
     console.error(
       "Paper Comparison AI Error:",
       error.response?.data || error.message
     );
 
-    throw new Error(
-      "Failed to compare papers"
-    );
+    throw new Error(detail);
   }
 };
 

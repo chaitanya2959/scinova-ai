@@ -69,8 +69,8 @@ export const getSummary = async (req, res) => {
     const summary = await Summary.findOne({ paper: paperId });
 
     if (!summary) {
-      return res.status(404).json(
-        new ApiResponse(false, "Summary not found")
+      return res.status(200).json(
+        new ApiResponse(true, "No summary found yet", null)
       );
     }
 

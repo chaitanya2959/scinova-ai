@@ -1,50 +1,155 @@
 import { useEffect, useState } from "react";
 
 import {
-  ArrowLeft,
-  Sparkles,
-  FileText,
-  CheckCircle,
   AlertCircle,
-  Lightbulb,
-  Settings,
-  Target,
-  Loader2,
+  ArrowLeft,
+  CalendarDays,
+  CheckCircle,
+  FileText,
   GitCompare,
+  Lightbulb,
+  Loader2,
+  Settings,
+  Sparkles,
+  Target,
 } from "lucide-react";
 
-import {
-  Link,
-} from "react-router-dom";
+import { Link } from "react-router-dom";
 
+import { comparePapers } from "../services/comparison.service";
+import { getMyPapers } from "../services/paper.service";
 
-import {
-  comparePapers,
-} from "../services/comparison.service";
+const MIN_PAPERS = 2;
+const MAX_PAPERS = 3;
 
-import api from "../services/api";
+const ANALYSIS_SECTIONS = [
+  {
+    key: "objectives",
+    label: "Research Objectives",
+    icon: Target,
+    type: "text",
+  },
+  {
+    key: "methodologies",
+    label: "Methodologies",
+    icon: Settings,
+    type: "text",
+  },
+  {
+    key: "technologies",
+    label: "Technologies",
+    icon: Sparkles,
+    type: "text",
+  },
+  {
+    key: "findings",
+    label: "Key Findings",
+    icon: Lightbulb,
+    type: "text",
+  },
+  {
+    key: "limitations",
+    label: "Limitations",
+    icon: AlertCircle,
+    type: "text",
+  },
+  {
+    key: "similarities",
+    label: "Similarities",
+    icon: CheckCircle,
+    type: "list",
+  },
+  {
+    key: "differences",
+    label: "Key Differences",
+    icon: GitCompare,
+    type: "list",
+  },
+  {
+    key: "researchOpportunities",
+    label: "Research Opportunities",
+    icon: Lightbulb,
+    type: "list",
+  },
+];
+
+const normalizeCollectionResponse = (response) => {
+  const data = response?.data?.data ?? response?.data ?? response;
+  return Array.isArray(data) ? data : [];
+};
+
+const getPaperTitle = (paper) => {
+  return (
+    paper?.title ||
+    paper?.name ||
+    paper?.fileName ||
+    paper?.originalName ||
+    "Untitled Paper"
+  );
+};
+
+const getPaperDescription = (paper) => {
+  return (
+    paper?.description ||
+    paper?.abstract ||
+    paper?.summary ||
+    "Scientific research paper"
+  );
+};
+
+const formatDate = (value) => {
+  if (!value) {
+    return "Recently uploaded";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Recently uploaded";
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const toListItems = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\n+/)
+      .map((item) =>
+        item.replace(/^[-*]\s*/, "").replace(/^\u2022\s*/, "").trim()
+      )
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const toParagraphs = (value) => {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
 
 const ComparePapers = () => {
   const [papers, setPapers] = useState([]);
-
-  const [selectedPapers, setSelectedPapers] =
-    useState([]);
-
-  const [comparison, setComparison] =
-    useState(null);
-
-  const [loadingPapers, setLoadingPapers] =
-    useState(true);
-
-  const [loadingCompare, setLoadingCompare] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  // ============================
-  // LOAD PAPERS
-  // ============================
+  const [selectedPapers, setSelectedPapers] = useState([]);
+  const [comparison, setComparison] = useState(null);
+  const [loadingPapers, setLoadingPapers] = useState(true);
+  const [loadingCompare, setLoadingCompare] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const loadPapers = async () => {
@@ -52,41 +157,12 @@ const ComparePapers = () => {
         setLoadingPapers(true);
         setError("");
 
-        /*
-          Change this endpoint only if
-          your existing Papers API uses
-          a different URL.
-        */
-
-        const response =
-          await api.get("/papers");
-
-        console.log(
-          "Papers:",
-          response.data
-        );
-
-        if (response.data?.success) {
-          setPapers(
-            response.data.data || []
-          );
-        } else {
-          setPapers(
-            response.data?.data || []
-          );
-        }
-
+        const response = await getMyPapers();
+        const paperData = normalizeCollectionResponse(response);
+        setPapers(paperData);
       } catch (err) {
-        console.error(
-          "LOAD PAPERS ERROR:",
-          err
-        );
-
-        setError(
-          err.response?.data?.message ||
-            "Unable to load papers."
-        );
-
+        console.error("Failed to load papers for comparison:", err);
+        setError(err.response?.data?.message || "Unable to load papers.");
       } finally {
         setLoadingPapers(false);
       }
@@ -95,49 +171,34 @@ const ComparePapers = () => {
     loadPapers();
   }, []);
 
-  // ============================
-  // SELECT PAPER
-  // ============================
-
   const handleSelectPaper = (paperId) => {
+    if (loadingCompare) {
+      return;
+    }
+
     setError("");
 
-    if (
-      selectedPapers.includes(paperId)
-    ) {
-      setSelectedPapers(
-        selectedPapers.filter(
-          (id) => id !== paperId
-        )
-      );
+    setSelectedPapers((current) => {
+      if (current.includes(paperId)) {
+        return current.filter((id) => id !== paperId);
+      }
 
-      return;
-    }
+      if (current.length >= MAX_PAPERS) {
+        setError(`You can select up to ${MAX_PAPERS} papers.`);
+        return current;
+      }
 
-    if (selectedPapers.length >= 3) {
-      setError(
-        "You can compare maximum 3 papers."
-      );
-
-      return;
-    }
-
-    setSelectedPapers([
-      ...selectedPapers,
-      paperId,
-    ]);
+      return [...current, paperId];
+    });
   };
 
-  // ============================
-  // COMPARE
-  // ============================
-
   const handleCompare = async () => {
-    if (selectedPapers.length < 2) {
-      setError(
-        "Please select at least 2 papers."
-      );
+    if (loadingCompare) {
+      return;
+    }
 
+    if (selectedPapers.length < MIN_PAPERS) {
+      setError(`Please select at least ${MIN_PAPERS} papers.`);
       return;
     }
 
@@ -145,609 +206,305 @@ const ComparePapers = () => {
       setLoadingCompare(true);
       setError("");
 
-      const result =
-        await comparePapers(
-          selectedPapers
-        );
+      const response = await comparePapers(selectedPapers);
+      const result = response?.data?.data ?? response?.data ?? response;
 
-      console.log(
-        "COMPARISON RESULT:",
-        result
-      );
-
-      if (result.success) {
-        setComparison(
-          result.data
-        );
-      } else {
-        setError(
-          result.message ||
-            "Comparison failed."
-        );
+      if (!result) {
+        throw new Error("Comparison data was not returned.");
       }
 
+      if (result.success === false) {
+        throw new Error(result.message || "Comparison failed.");
+      }
+
+      const comparisonData =
+        result?.data && typeof result.data === "object" && !Array.isArray(result.data)
+          ? result.data
+          : result;
+
+      setComparison(comparisonData);
     } catch (err) {
-      console.error(
-        "COMPARISON ERROR:",
-        err
-      );
-
-      console.error(
-        "SERVER RESPONSE:",
-        err.response?.data
-      );
-
+      console.error("Comparison error:", err);
       setError(
         err.response?.data?.message ||
-          "Unable to compare papers."
+          err.message ||
+          "Failed to compare papers."
       );
-
     } finally {
       setLoadingCompare(false);
     }
   };
 
-  // ============================
-  // RESET
-  // ============================
-
   const handleReset = () => {
     setSelectedPapers([]);
     setComparison(null);
     setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ============================
-  // GET PAPER NAME
-  // ============================
+  const getSelectedIndex = (paperId) => selectedPapers.indexOf(paperId);
 
-  const getPaperTitle = (paperId) => {
-    const paper = papers.find(
-      (item) =>
-        item._id === paperId
-    );
+  const selectedPaperMeta = selectedPapers
+    .map((paperId) => papers.find((paper) => paper._id === paperId))
+    .filter(Boolean);
+
+  const renderComparisonValue = (sectionKey, sectionType) => {
+    const value = comparison?.[sectionKey];
+
+    if (sectionType === "list") {
+      const items = toListItems(value);
+
+      if (items.length === 0) {
+        return (
+          <p className="analysis-empty">
+            The backend did not return this section.
+          </p>
+        );
+      }
+
+      return (
+        <ul className="analysis-list">
+          {items.map((item, index) => (
+            <li key={`${sectionKey}-${index}`}>
+              <span className="analysis-bullet" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    const paragraphs = toParagraphs(value);
+
+    if (paragraphs.length === 0) {
+      if (typeof value === "string" && value.trim()) {
+        return <p className="analysis-text">{value.trim()}</p>;
+      }
+
+      return (
+        <p className="analysis-empty">
+          The backend did not return this section.
+        </p>
+      );
+    }
 
     return (
-      paper?.title ||
-      paper?.fileName ||
-      "Research Paper"
+      <div className="analysis-paragraphs">
+        {paragraphs.map((paragraph, index) => (
+          <p key={`${sectionKey}-${index}`}>{paragraph}</p>
+        ))}
+      </div>
     );
-  };
-
-  // ============================
-  // RESULT HELPER
-  // ============================
-
-  const getComparisonValue = (
-    section,
-    paperId
-  ) => {
-    if (!comparison?.[section]) {
-      return "No information available.";
-    }
-
-    const paperIndex =
-      selectedPapers.indexOf(
-        paperId
-      );
-
-    if (paperIndex === -1) {
-      return "No information available.";
-    }
-
-    if (
-      paperIndex === 0 &&
-      comparison[section].paper1
-    ) {
-      return comparison[section].paper1;
-    }
-
-    if (
-      paperIndex === 1 &&
-      comparison[section].paper2
-    ) {
-      return comparison[section].paper2;
-    }
-
-    if (
-      paperIndex === 2 &&
-      comparison[section].paper3
-    ) {
-      return comparison[section].paper3;
-    }
-
-    return "No information available.";
   };
 
   return (
-    <section className="dashboard-content">
+    <section className="dashboard-content comparison-page">
+      <Link to="/papers" className="back-link">
+        <ArrowLeft size={17} />
+        Back to Papers
+      </Link>
 
-          {/* BACK */}
-
-          <Link
-            to="/papers"
-            className="back-link"
-          >
-            <ArrowLeft size={17} />
-
-            Back to Papers
-          </Link>
-
-
-          {/* HEADER */}
-
-          <div className="comparison-header">
-
-            <div className="comparison-title">
-
-              <div className="comparison-icon">
-                <GitCompare size={26} />
-              </div>
-
-              <div>
-
-                <h1>
-                  Compare Research Papers
-                </h1>
-
-                <p>
-                  Compare up to three papers
-                  and discover similarities,
-                  differences and research gaps.
-                </p>
-
-              </div>
-
-            </div>
-
-            <div className="ai-badge">
-
-              <Sparkles size={16} />
-
-              SciNova AI
-
-            </div>
-
+      <div className="comparison-header">
+        <div className="comparison-title">
+          <div className="comparison-icon">
+            <GitCompare size={26} />
           </div>
 
+          <div>
+            <h1>Compare Research Papers</h1>
+            <p>
+              Select two or three research papers and let SciNova AI compare
+              their objectives, methodologies, findings and future potential.
+            </p>
+          </div>
+        </div>
 
-          {/* ERROR */}
+        <div className="ai-badge">
+          <Sparkles size={16} />
+          SciNova AI
+        </div>
+      </div>
 
-          {error && (
+      {error && (
+        <div className="comparison-error">
+          <AlertCircle size={18} />
+          {error}
+        </div>
+      )}
 
-            <div className="comparison-error">
-
-              <AlertCircle size={18} />
-
-              {error}
-
+      {!comparison ? (
+        <div className="comparison-selection">
+          <div className="selection-header">
+            <div>
+              <h2>Select Research Papers</h2>
+              <p>Choose 2 or 3 papers from your library to start the analysis.</p>
             </div>
 
-          )}
+            <div className="selection-count">
+              {selectedPapers.length}/{MAX_PAPERS} Selected
+            </div>
+          </div>
 
+          {loadingPapers ? (
+            <div className="loading-papers">
+              <Loader2 size={24} className="spinner" />
+              Loading your papers...
+            </div>
+          ) : papers.length === 0 ? (
+            <div className="empty-papers">
+              <FileText size={36} />
+              <h3>No research papers found</h3>
+              <p>Upload research papers before comparing them.</p>
+              <Link to="/upload" className="primary-button">
+                Upload Paper
+              </Link>
+            </div>
+          ) : (
+            <>
+              <div className="paper-selection-grid">
+                {papers.map((paper) => {
+                  const selectedIndex = getSelectedIndex(paper._id);
+                  const selected = selectedIndex !== -1;
 
-          {/* PAPER SELECTION */}
+                  return (
+                    <button
+                      type="button"
+                      key={paper._id}
+                      onClick={() => handleSelectPaper(paper._id)}
+                      className={`paper-select-card ${selected ? "selected" : ""}`}
+                      aria-pressed={selected}
+                    >
+                      <div className="paper-select-icon">
+                        <FileText size={22} />
+                      </div>
 
-          {!comparison && (
+                      <div className="paper-select-content">
+                        <div className="paper-select-topline">
+                          <h3>{getPaperTitle(paper)}</h3>
 
-            <div className="comparison-selection">
+                          {selected && (
+                            <span className="paper-select-badge">
+                              Paper {selectedIndex + 1}
+                            </span>
+                          )}
+                        </div>
 
-              <div className="selection-header">
+                        <p className="paper-select-description">
+                          {getPaperDescription(paper)}
+                        </p>
 
-                <div>
+                        <div className="paper-select-footer">
+                          <span className="paper-select-date">
+                            <CalendarDays size={14} />
+                            {formatDate(paper.createdAt || paper.uploadedAt)}
+                          </span>
+                        </div>
+                      </div>
 
-                  <h2>
-                    Select Research Papers
-                  </h2>
-
-                  <p>
-                    Choose 2 or 3 papers to
-                    compare.
-                  </p>
-
-                </div>
-
-                <div className="selection-count">
-
-                  {selectedPapers.length}/3 Selected
-
-                </div>
-
+                      <div className="selection-check">
+                        {selected ? (
+                          <CheckCircle size={22} />
+                        ) : (
+                          <span aria-hidden="true" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-
-              {loadingPapers ? (
-
-                <div className="loading-papers">
-
-                  <Loader2
-                    size={25}
-                    className="spinner"
-                  />
-
-                  Loading your papers...
-
-                </div>
-
-              ) : papers.length === 0 ? (
-
-                <div className="empty-papers">
-
-                  <FileText size={35} />
-
-                  <h3>
-                    No research papers found
-                  </h3>
-
-                  <p>
-                    Upload research papers
-                    before comparing them.
-                  </p>
-
-                  <Link
-                    to="/upload"
-                    className="primary-button"
-                  >
-                    Upload Paper
-                  </Link>
-
-                </div>
-
-              ) : (
-
-                <div className="paper-selection-grid">
-
-                  {papers.map(
-                    (paper) => {
-
-                      const selected =
-                        selectedPapers.includes(
-                          paper._id
-                        );
-
-                      return (
-
-                        <button
-                          type="button"
-                          key={paper._id}
-                          onClick={() =>
-                            handleSelectPaper(
-                              paper._id
-                            )
-                          }
-                          className={`paper-select-card ${
-                            selected
-                              ? "selected"
-                              : ""
-                          }`}
-                        >
-
-                          <div className="paper-select-icon">
-
-                            <FileText
-                              size={22}
-                            />
-
-                          </div>
-
-
-                          <div className="paper-select-content">
-
-                            <h3>
-
-                              {paper.title ||
-                                paper.fileName ||
-                                "Research Paper"}
-
-                            </h3>
-
-                            <p>
-
-                              {paper.author ||
-                                "Scientific Research Paper"}
-
-                            </p>
-
-                          </div>
-
-
-                          <div className="selection-check">
-
-                            {selected ? (
-
-                              <CheckCircle
-                                size={22}
-                              />
-
-                            ) : (
-
-                              <span></span>
-
-                            )}
-
-                          </div>
-
-                        </button>
-
-                      );
-                    }
-                  )}
-
-                </div>
-
-              )}
-
-
-              {/* ACTION */}
-
-              {papers.length > 0 && (
-
-                <div className="comparison-actions">
-
-                  <p>
-
-                    {selectedPapers.length < 2
-                      ? "Select at least 2 papers to continue."
-                      : `${selectedPapers.length} papers ready for comparison.`}
-
-                  </p>
-
-                  <button
-                    type="button"
-                    className="primary-button compare-button"
-                    onClick={
-                      handleCompare
-                    }
-                    disabled={
-                      selectedPapers.length <
-                        2 ||
-                      loadingCompare
-                    }
-                  >
-
-                    {loadingCompare ? (
-
-                      <>
-                        <Loader2
-                          size={18}
-                          className="spinner"
-                        />
-
-                        Comparing...
-
-                      </>
-
-                    ) : (
-
-                      <>
-                        <Sparkles
-                          size={18}
-                        />
-
-                        Compare Papers
-
-                      </>
-
-                    )}
-
-                  </button>
-
-                </div>
-
-              )}
-
-            </div>
-
-          )}
-
-
-          {/* COMPARISON RESULT */}
-
-          {comparison && (
-
-            <div className="comparison-result">
-
-              {/* RESULT HEADER */}
-
-              <div className="result-header">
-
-                <div>
-
-                  <span className="result-label">
-                    AI ANALYSIS
-                  </span>
-
-                  <h2>
-                    Paper Comparison
-                  </h2>
-
-                  <p>
-                    SciNova AI compared the
-                    selected research papers.
-                  </p>
-
-                </div>
+              <div className="comparison-actions">
+                <p>
+                  {selectedPapers.length < MIN_PAPERS
+                    ? `Select at least ${MIN_PAPERS} papers to continue.`
+                    : `${selectedPapers.length} papers ready for comparison.`}
+                </p>
 
                 <button
                   type="button"
-                  className="secondary-button"
-                  onClick={handleReset}
+                  className="primary-button compare-button"
+                  onClick={handleCompare}
+                  disabled={
+                    selectedPapers.length < MIN_PAPERS ||
+                    loadingCompare ||
+                    loadingPapers
+                  }
                 >
-                  Compare Again
+                  {loadingCompare ? (
+                    <>
+                      <Loader2 size={18} className="spinner" />
+                      Analyzing Papers...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      Compare with AI
+                    </>
+                  )}
                 </button>
-
               </div>
-
-
-              {/* PAPER HEADERS */}
-
-              <div
-                className="comparison-table"
-                style={{
-                  gridTemplateColumns:
-                    `200px repeat(${selectedPapers.length}, 1fr)`,
-                }}
-              >
-
-                <div className="comparison-label-cell">
-                  Research Papers
-                </div>
-
-                {selectedPapers.map(
-                  (paperId, index) => (
-
-                    <div
-                      key={paperId}
-                      className="comparison-paper-header"
-                    >
-
-                      <div className="paper-number">
-                        Paper {index + 1}
-                      </div>
-
-                      <h3>
-                        {getPaperTitle(
-                          paperId
-                        )}
-                      </h3>
-
-                    </div>
-
-                  )
-                )}
-
-
-                {/* OBJECTIVE */}
-
-                <div className="comparison-label-cell">
-
-                  <Target size={18} />
-
-                  Objective
-
-                </div>
-
-                {selectedPapers.map(
-                  (paperId) => (
-
-                    <div
-                      key={`objective-${paperId}`}
-                      className="comparison-cell"
-                    >
-                      {getComparisonValue(
-                        "objective",
-                        paperId
-                      )}
-                    </div>
-
-                  )
-                )}
-
-
-                {/* METHODOLOGY */}
-
-                <div className="comparison-label-cell">
-
-                  <Settings size={18} />
-
-                  Methodology
-
-                </div>
-
-                {selectedPapers.map(
-                  (paperId) => (
-
-                    <div
-                      key={`methodology-${paperId}`}
-                      className="comparison-cell"
-                    >
-                      {getComparisonValue(
-                        "methodology",
-                        paperId
-                      )}
-                    </div>
-
-                  )
-                )}
-
-
-                {/* FINDINGS */}
-
-                <div className="comparison-label-cell">
-
-                  <Lightbulb size={18} />
-
-                  Key Findings
-
-                </div>
-
-                {selectedPapers.map(
-                  (paperId) => (
-
-                    <div
-                      key={`findings-${paperId}`}
-                      className="comparison-cell"
-                    >
-                      {getComparisonValue(
-                        "keyFindings",
-                        paperId
-                      )}
-                    </div>
-
-                  )
-                )}
-
-
-                {/* RESEARCH GAP */}
-
-                <div className="comparison-label-cell">
-
-                  <AlertCircle size={18} />
-
-                  Research Gap
-
-                </div>
-
-                {selectedPapers.map(
-                  (paperId) => (
-
-                    <div
-                      key={`gap-${paperId}`}
-                      className="comparison-cell"
-                    >
-                      {getComparisonValue(
-                        "researchGap",
-                        paperId
-                      )}
-                    </div>
-
-                  )
-                )}
-
-              </div>
-
-
-              {/* GENERATED BY */}
-
-              <div className="comparison-generated">
-
-                <Sparkles size={15} />
-
-                Generated by{" "}
-
-                <strong>
-                  {comparison.generatedBy ||
-                    "SciNova AI"}
-                </strong>
-
-              </div>
-
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="comparison-result">
+          <div className="result-header">
+            <div>
+              <span className="result-label">AI ANALYSIS</span>
+              <h2>AI Research Comparison</h2>
+              <p>
+                SciNova AI analyzed the selected research papers and identified
+                their key similarities, differences, findings and future research
+                opportunities.
+              </p>
             </div>
 
-          )}
+            <button type="button" className="secondary-button" onClick={handleReset}>
+              Compare Again
+            </button>
+          </div>
 
-        </section>
+          <div className="selected-paper-chips">
+            {selectedPaperMeta.map((paper, index) => (
+              <span key={paper._id} className="selected-paper-chip">
+                <span className="selected-paper-index">{index + 1}</span>
+                <FileText size={14} />
+                <span className="selected-paper-title">{getPaperTitle(paper)}</span>
+              </span>
+            ))}
+          </div>
 
+          <div className="analysis-grid">
+            {ANALYSIS_SECTIONS.map((section) => {
+              const Icon = section.icon;
+
+              return (
+                <article key={section.key} className="analysis-card">
+                  <div className="analysis-card-header">
+                    <div className="analysis-card-icon">
+                      <Icon size={18} />
+                    </div>
+
+                    <div>
+                      <h3>{section.label}</h3>
+                    </div>
+                  </div>
+
+                  <div className="analysis-card-body">
+                    {renderComparisonValue(section.key, section.type)}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="comparison-generated">
+            <Sparkles size={15} />
+            Generated by <strong>{comparison?.generatedBy || "SciNova AI"}</strong>
+          </div>
+        </div>
+      )}
+    </section>
   );
 };
 

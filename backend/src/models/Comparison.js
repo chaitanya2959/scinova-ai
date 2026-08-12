@@ -59,4 +59,7 @@ const comparisonSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.model("Comparison", comparisonSchema);
+export default mongoose.model(
+  "Comparison",
+  comparisonSchema
+);

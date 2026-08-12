@@ -4,7 +4,7 @@ export const comparePapers = async (paperIds) => {
   console.log("Comparing papers:", paperIds);
 
   const response = await api.post(
-    "/comparison",
+    "/comparisons",
     {
       paperIds,
     }

@@ -68,8 +68,8 @@ export const getResearchGap = async (req, res) => {
     const researchGap = await ResearchGap.findOne({ paper: paperId });
 
     if (!researchGap) {
-      return res.status(404).json(
-        new ApiResponse(false, "Research gap not found")
+      return res.status(200).json(
+        new ApiResponse(true, "No research gap found yet", null)
       );
     }
 

@@ -6,10 +6,13 @@ import {
   comparePapersWithAI,
 } from "../services/ai.service.js";
 
-
 export const comparePapers = async (req, res) => {
   try {
     const { paperIds } = req.body;
+
+    // -----------------------------
+    // VALIDATION
+    // -----------------------------
 
     if (!Array.isArray(paperIds)) {
       return res.status(400).json(
@@ -38,6 +41,10 @@ export const comparePapers = async (req, res) => {
       );
     }
 
+    // -----------------------------
+    // FIND PAPERS
+    // -----------------------------
+
     const papers = await Paper.find({
       _id: { $in: paperIds },
     });
@@ -51,10 +58,14 @@ export const comparePapers = async (req, res) => {
       );
     }
 
-    // Verify ownership
+    // -----------------------------
+    // OWNERSHIP CHECK
+    // -----------------------------
+
     const unauthorized = papers.some(
       (paper) =>
-        paper.uploadedBy.toString() !== req.user.id
+        paper.uploadedBy.toString() !==
+        req.user.id.toString()
     );
 
     if (unauthorized) {
@@ -66,28 +77,138 @@ export const comparePapers = async (req, res) => {
       );
     }
 
+    console.log(
+      "Comparing papers:",
+      paperIds
+    );
+
+    // -----------------------------
+    // CALL AI SERVICE
+    // -----------------------------
+
     const aiResult =
-      await comparePapersWithAI(paperIds);
+      await comparePapersWithAI(
+        paperIds
+      );
 
-    let parsedComparison;
+    console.log(
+      "AI RESULT:",
+      JSON.stringify(
+        aiResult,
+        null,
+        2
+      )
+    );
 
-    try {
-      parsedComparison =
-        JSON.parse(aiResult.comparison);
-    } catch {
+    // -----------------------------
+    // GET COMPARISON STRING
+    // -----------------------------
+
+    let comparisonData =
+      aiResult?.comparison;
+
+    if (!comparisonData) {
       return res.status(500).json(
         new ApiResponse(
           false,
-          "AI returned invalid comparison format"
+          "AI did not return comparison data"
         )
       );
     }
 
+    // -----------------------------
+    // PARSE JSON STRING
+    // -----------------------------
+
+    if (
+      typeof comparisonData ===
+      "string"
+    ) {
+      try {
+        comparisonData =
+          JSON.parse(
+            comparisonData
+          );
+      } catch (error) {
+        console.error(
+          "Comparison JSON parse error:",
+          error
+        );
+
+        return res.status(500).json(
+          new ApiResponse(
+            false,
+            "AI returned invalid comparison JSON"
+          )
+        );
+      }
+    }
+
+    console.log(
+      "PARSED COMPARISON:",
+      JSON.stringify(
+        comparisonData,
+        null,
+        2
+      )
+    );
+
+    // -----------------------------
+    // SAVE COMPARISON
+    // -----------------------------
+
     const comparison =
       await Comparison.create({
         papers: paperIds,
-        ...parsedComparison,
+
+        objectives:
+          comparisonData.objectives ||
+          "",
+
+        methodologies:
+          comparisonData.methodologies ||
+          "",
+
+        technologies:
+          comparisonData.technologies ||
+          "",
+
+        findings:
+          comparisonData.findings ||
+          "",
+
+        limitations:
+          comparisonData.limitations ||
+          "",
+
+        similarities:
+          Array.isArray(
+            comparisonData.similarities
+          )
+            ? comparisonData.similarities
+            : [],
+
+        differences:
+          Array.isArray(
+            comparisonData.differences
+          )
+            ? comparisonData.differences
+            : [],
+
+        researchOpportunities:
+          Array.isArray(
+            comparisonData.researchOpportunities
+          )
+            ? comparisonData.researchOpportunities
+            : [],
+
+        generatedBy:
+          "SciNova AI",
       });
+
+    // -----------------------------
+    // SUCCESS
+    // -----------------------------
 
     return res.status(201).json(
       new ApiResponse(
@@ -98,6 +219,10 @@ export const comparePapers = async (req, res) => {
     );
 
   } catch (error) {
+    console.error(
+      "COMPARE PAPERS ERROR:",
+      error
+    );
 
     return res.status(500).json(
       new ApiResponse(
